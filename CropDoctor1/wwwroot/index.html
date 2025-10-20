@@ -1,0 +1,126 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Analyzer - Crop Doctor</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">Crop Doctor</a>
+        <div class="nav-links">
+            <a href="/" class="active">AI Analyzer</a>
+
+            <!-- This link is only shown to logged-in users -->
+            <a href="/crops.html" class="requires-auth" style="display: none;">Crop Advisor</a>
+
+            <a href="/news.html">News</a>
+
+            <!-- These links are only shown to logged-out users -->
+            <div class="no-auth" style="display: none;">
+                <a href="/login.html">Login</a>
+                <a href="/register.html">Register</a>
+            </div>
+
+            <!-- This area shows user info and the logout button -->
+            <div class="user-area">
+                <span id="user-status"></span>
+                <button id="logout-btn" style="display: none;">Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <div class="container app-container">
+            <h1>AI Disease Analyzer</h1>
+            <p>
+                Upload a clear image of a plant leaf for disease analysis and solutions.
+                <br>
+                <strong class="requires-auth" style="display: none;">You are logged in and can use this feature.</strong>
+                <strong class="no-auth" style="display: none;">Please <a href="/login.html">login</a> to use this feature.</strong>
+            </p>
+            <div class="upload-area" id="uploadArea">
+                <input type="file" id="imageUpload" accept="image/*">
+                <p>Click or drag & drop an image</p>
+                <img id="preview" style="display: none;" />
+            </div>
+            <button class="button" onclick="analyzeImage()" id="analyzeBtn" disabled>Analyze</button>
+            <div id="spinner" style="display: none;"></div>
+            <div id="result"></div>
+        </div>
+    </div>
+
+    <script src="/js/main.js"></script>
+    <script>
+        // All the specific JavaScript for this page
+        const analyzeApiUrl = '/api/ImageAnalysis/upload';
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('imageUpload');
+        const preview = document.getElementById('preview');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const resultDiv = document.getElementById('result');
+        const spinner = document.getElementById('spinner');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            if (file) {
+                preview.src = URL.createObjectURL(file);
+                preview.style.display = 'block';
+                analyzeBtn.disabled = false;
+                resultDiv.style.display = 'none';
+            }
+        });
+
+        async function analyzeImage() {
+            if (fileInput.files.length === 0) {
+                alert('Please select an image file first.');
+                return;
+            }
+            spinner.style.display = 'block';
+            analyzeBtn.disabled = true;
+            resultDiv.innerHTML = '';
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const response = await fetch(analyzeApiUrl, { method: 'POST', body: formData });
+                if (response.status === 401) {
+                    throw new Error('You are not authorized. Please log in to use this feature.');
+                }
+                if (!response.ok) {
+                    throw new Error(`Server responded with status: ${response.status}`);
+                }
+                const data = await response.json();
+                displayResult(data);
+            } catch (error) {
+                resultDiv.innerHTML = `<p style="color:red;"><strong>Error:</strong> ${error.message}</p>`;
+            } finally {
+                spinner.style.display = 'none';
+                analyzeBtn.disabled = false;
+                resultDiv.style.display = 'block';
+            }
+        }
+
+        function displayResult(data) {
+            if (data && data.details) {
+                resultDiv.innerHTML = `
+                        <h2>Analysis Result</h2>
+                        <p><strong>Plant:</strong> ${data.details.plantName}</p>
+                        <p><strong>Condition:</strong> ${data.details.diseaseName}</p>
+                        <p><strong>Confidence:</strong> ${(data.confidence * 100).toFixed(2)}%</p>
+                        <h3>Cause</h3>
+                        <p>${data.details.cause}</p>
+                        <h3>Recommended Solution</h3>
+                        <p>${data.details.recommendedSolution}</p>
+                    `;
+            } else {
+                resultDiv.innerHTML = `<h2>Analysis Result</h2><p>Could not find details for prediction: <strong>${data.predictedLabel}</strong></p>`;
+            }
+        }
+    </script>
+</body>
+</html>

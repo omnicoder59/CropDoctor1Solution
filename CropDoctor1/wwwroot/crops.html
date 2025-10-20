@@ -1,0 +1,185 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crop Advisor - Crop Doctor</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        /* Additional styles just for this page to make the filters look good */
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+            background-color: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 8px;
+            align-items: center;
+        }
+
+            .filters label {
+                font-weight: bold;
+                margin-right: 0.5rem;
+            }
+
+            .filters select {
+                padding: 0.5rem;
+                border-radius: 4px;
+                border: 1px solid #ccc;
+                font-size: 1rem;
+            }
+
+        .crop-card p {
+            margin: 0.5rem 0;
+        }
+
+        .crop-card .tag {
+            background-color: #e9ecef;
+            color: #495057;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.8em;
+            margin-right: 0.5rem;
+            display: inline-block;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">Crop Doctor</a>
+        <div class="nav-links">
+            <a href="/">AI Analyzer</a>
+
+            <!-- This link is only shown to logged-in users and is marked active on this page -->
+            <a href="/crops.html" class="requires-auth active" style="display: none;">Crop Advisor</a>
+
+            <a href="/news.html">News</a>
+
+            <!-- These links are only shown to logged-out users -->
+            <div class="no-auth" style="display: none;">
+                <a href="/login.html">Login</a>
+                <a href="/register.html">Register</a>
+            </div>
+
+            <!-- This area shows user info and the logout button -->
+            <div class="user-area">
+                <span id="user-status"></span>
+                <button id="logout-btn" style="display: none;">Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <div class="container advisor-container">
+            <h1>Crop Advisor</h1>
+            <p>Find the best crops to grow based on various conditions. This feature is available for logged-in users.</p>
+
+            <div class="filters">
+                <div>
+                    <label for="season-filter">Planting Season:</label>
+                    <select id="season-filter">
+                        <option value="">Any</option>
+                        <option value="Spring">Spring</option>
+                        <option value="Summer">Summer</option>
+                        <option value="Autumn">Autumn</option>
+                        <option value="Winter">Winter</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="soil-filter">Soil Type:</label>
+                    <select id="soil-filter">
+                        <option value="">Any</option>
+                        <option value="Loamy">Loamy</option>
+                        <option value="Sandy">Sandy</option>
+                        <option value="Silty">Silty</option>
+                        <option value="Clay">Clay</option>
+                        <option value="Well-Drained">Well-Drained</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="advisor-spinner" style="display: none;"></div>
+            <div id="crop-results" class="crop-grid">
+                <!-- Crop cards will be dynamically loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Shared script for nav bar logic -->
+    <script src="/js/main.js"></script>
+
+    <!-- Page-specific script for fetching crop data -->
+    <script>
+        const searchApiUrl = '/api/CropAdvisor/search';
+        const seasonFilter = document.getElementById('season-filter');
+        const soilFilter = document.getElementById('soil-filter');
+        const resultsGrid = document.getElementById('crop-results');
+        const spinner = document.getElementById('advisor-spinner');
+
+        async function fetchCrops() {
+            spinner.style.display = 'block';
+            resultsGrid.innerHTML = ''; // Clear previous results
+
+            const season = seasonFilter.value;
+            const soil = soilFilter.value;
+
+            // Construct the query URL with parameters
+            const url = new URL(searchApiUrl, window.location.origin);
+            if (season) url.searchParams.append('season', season);
+            if (soil) url.searchParams.append('soil', soil);
+
+            try {
+                const response = await fetch(url);
+
+                if (response.status === 401) {
+                    // If the user is not logged in, the [Authorize] attribute in the backend will return a 401.
+                    // We should redirect them to the login page.
+                    window.location.href = '/login.html';
+                    return;
+                }
+                if (!response.ok) {
+                    throw new Error('Failed to fetch crop data from the server.');
+                }
+
+                const crops = await response.json();
+
+                if (crops.length === 0) {
+                    resultsGrid.innerHTML = '<p>No crops match your selected criteria.</p>';
+                } else {
+                    resultsGrid.innerHTML = crops.map(crop => `
+                            <div class="crop-card">
+                                <div class="crop-card-content">
+                                    <h3>${crop.name}</h3>
+                                    <p><strong>Optimal Temperature:</strong> ${crop.temperatureRange}</p>
+                                    <p><strong>Sowing Guide:</strong> ${crop.sowingGuide}</p>
+                                    <p><strong>Market Insight:</strong> ${crop.marketInsight}</p>
+                                    <div>
+                                        <strong>Planting Seasons:</strong> ${crop.plantingSeasons.map(s => `<span class="tag">${s}</span>`).join('')}
+                                    </div>
+                                    <div style="margin-top: 0.5rem;">
+                                        <strong>Suitable Soils:</strong> ${crop.suitableSoilTypes.map(s => `<span class="tag">${s}</span>`).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('');
+                }
+            } catch (error) {
+                console.error('Error fetching crops:', error);
+                resultsGrid.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${error.message}</p>`;
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        // Add event listeners to the filters to automatically refresh the results
+        seasonFilter.addEventListener('change', fetchCrops);
+        soilFilter.addEventListener('change', fetchCrops);
+
+        // Fetch the initial data when the page loads
+        document.addEventListener('DOMContentLoaded', fetchCrops);
+    </script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>News - Crop Doctor</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">Crop Doctor</a>
+        <div class="nav-links">
+            <a href="/">AI Analyzer</a>
+            <a href="/crops.html" class="requires-auth" style="display: none;">Crop Advisor</a>
+            <a href="/news.html" class="active">News</a>
+            <div class="no-auth" style="display: none;">
+                <a href="/login.html">Login</a>
+                <a href="/register.html">Register</a>
+            </div>
+            <div class="user-area">
+                <span id="user-status"></span>
+                <button id="logout-btn" style="display: none;">Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <div class="container news-container">
+            <h1>Latest Agriculture News</h1>
+            <div id="news-spinner"></div>
+            <div id="news-grid" class="news-grid">
+                <!-- Content will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Shared script for nav bar logic -->
+    <script src="/js/main.js"></script>
+
+    <!-- Page-specific script for fetching news -->
+    <script>
+        const newsApiUrl = '/api/news';
+        document.addEventListener('DOMContentLoaded', async () => {
+            const newsGrid = document.getElementById('news-grid');
+            const newsSpinner = document.getElementById('news-spinner');
+
+            // Show the spinner before we start fetching
+            newsSpinner.style.display = 'block';
+
+            try {
+                const response = await fetch(newsApiUrl);
+
+                // Check for a server-side error (like 500)
+                if (!response.ok) {
+                    throw new Error(`The server responded with an error: ${response.status}`);
+                }
+
+                const articles = await response.json();
+
+                if (!articles || articles.length === 0) {
+                    newsGrid.innerHTML = '<p>No news articles are available at the moment. Please check if the News API key is configured correctly in the backend.</p>';
+                } else {
+                    // If everything is OK, build the HTML for the news cards
+                    newsGrid.innerHTML = articles.map(article => `
+                        <a href="${article.url}" target="_blank" class="news-card">
+                            <img src="${article.urlToImage || 'https://via.placeholder.com/400x200.png?text=No+Image'}" alt="News Image">
+                            <div class="news-card-content">
+                                <h3>${article.title || 'No Title'}</h3>
+                                <p>${article.description || 'No description available.'}</p>
+                            </div>
+                        </a>
+                    `).join('');
+                }
+            } catch (error) {
+                // If anything goes wrong, display a clear error message on the page
+                console.error('Failed to fetch news:', error);
+                newsGrid.innerHTML = `<p style="color:red;"><strong>Error:</strong> Failed to load news. ${error.message}</p>`;
+            } finally {
+                // Always hide the spinner when done
+                newsSpinner.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>

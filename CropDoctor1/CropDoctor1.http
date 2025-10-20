@@ -1,0 +1,6 @@
+@CropDoctor1_HostAddress = http://localhost:5008
+
+GET {{CropDoctor1_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
