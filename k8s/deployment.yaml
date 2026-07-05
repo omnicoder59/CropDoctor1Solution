@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cropdoctor
+  namespace: cropdoctor
+  labels:
+    app: cropdoctor
+spec:
+  replicas: 3  # Number of pod replicas
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: cropdoctor
+  template:
+    metadata:
+      labels:
+        app: cropdoctor
+    spec:
+      containers:
+      - name: cropdoctor
+        image: cropdoctor:latest  # Change to your registry: myregistry.azurecr.io/cropdoctor:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+          name: http
+        - containerPort: 443
+          name: https
+
+        # Environment variables from ConfigMap
+        envFrom:
+        - configMapRef:
+            name: cropdoctor-config
+
+        # Environment variables from Secrets
+        env:
+        - name: ConnectionStrings__DefaultConnection
+          valueFrom:
+            secretKeyRef:
+              name: cropdoctor-secrets
+              key: ConnectionStrings__DefaultConnection
+
+        # Resource limits and requests
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+        # Liveness probe - restart if unhealthy
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        # Readiness probe - don't send traffic if not ready
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+        # Security context
+        securityContext:
+          runAsNonRoot: false
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+
+        # Volume mounts (if needed)
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+
+      # Volumes
+      volumes:
+      - name: tmp
+        emptyDir: {}
+
+      # Pod restart policy
+      restartPolicy: Always

@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cropdoctor-service
+  namespace: cropdoctor
+  labels:
+    app: cropdoctor
+spec:
+  type: LoadBalancer  # Change to ClusterIP if using Ingress, NodePort for local K8s
+  selector:
+    app: cropdoctor
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  - name: https
+    port: 443
+    targetPort: 443
+    protocol: TCP

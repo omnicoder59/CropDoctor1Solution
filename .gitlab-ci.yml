@@ -1,0 +1,104 @@
+stages:
+  - build
+  - test
+  - security
+  - deploy-staging
+  - deploy-production
+
+variables:
+  DOCKER_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+  DOCKER_IMAGE_LATEST: $CI_REGISTRY_IMAGE:latest
+  K8S_NAMESPACE: cropdoctor
+
+before_script:
+  - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+
+build:dotnet:
+  stage: build
+  image: mcr.microsoft.com/dotnet/sdk:8.0
+  script:
+    - dotnet restore CropDoctor1/CropDoctor1.csproj
+    - dotnet build CropDoctor1/CropDoctor1.csproj -c Release
+  artifacts:
+    paths:
+      - CropDoctor1/bin/Release/
+    expire_in: 1 hour
+
+test:dotnet:
+  stage: test
+  image: mcr.microsoft.com/dotnet/sdk:8.0
+  script:
+    - dotnet restore CropDoctor1/CropDoctor1.csproj
+    - dotnet test CropDoctor1.Tests/CropDoctor1.Tests.csproj -c Release --no-build --logger trx --results-directory TestResults
+  artifacts:
+    reports:
+      junit: TestResults/*.trx
+  allow_failure: true
+
+test:dependencies:
+  stage: test
+  image: mcr.microsoft.com/dotnet/sdk:8.0
+  script:
+    - dotnet list CropDoctor1/CropDoctor1.csproj package --vulnerable
+  allow_failure: true
+
+security:trivy:
+  stage: security
+  image: aquasec/trivy:latest
+  script:
+    - trivy fs --severity HIGH,CRITICAL .
+    - trivy config --severity HIGH,CRITICAL .
+  allow_failure: true
+
+build:docker:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker build -t $DOCKER_IMAGE .
+    - docker tag $DOCKER_IMAGE $DOCKER_IMAGE_LATEST
+    - docker push $DOCKER_IMAGE
+    - docker push $DOCKER_IMAGE_LATEST
+
+scan:docker:
+  stage: security
+  image: aquasec/trivy:latest
+  services:
+    - docker:dind
+  script:
+    - trivy image --severity HIGH,CRITICAL $DOCKER_IMAGE
+
+deploy:staging:
+  stage: deploy-staging
+  image: bitnami/kubectl:latest
+  environment:
+    name: staging
+    url: https://staging-cropdoctor.example.com
+  before_script:
+    - mkdir -p $HOME/.kube
+    - echo "$KUBE_CONFIG_STAGING" | base64 -d > $HOME/.kube/config
+    - chmod 600 $HOME/.kube/config
+  script:
+    - kubectl set image deployment/cropdoctor cropdoctor=$DOCKER_IMAGE --record -n $K8S_NAMESPACE
+    - kubectl rollout status deployment/cropdoctor -n $K8S_NAMESPACE --timeout=5m
+  only:
+    - develop
+  when: manual
+
+deploy:production:
+  stage: deploy-production
+  image: bitnami/kubectl:latest
+  environment:
+    name: production
+    url: https://cropdoctor.example.com
+  before_script:
+    - mkdir -p $HOME/.kube
+    - echo "$KUBE_CONFIG_PRODUCTION" | base64 -d > $HOME/.kube/config
+    - chmod 600 $HOME/.kube/config
+  script:
+    - kubectl set image deployment/cropdoctor cropdoctor=$DOCKER_IMAGE_LATEST --record -n $K8S_NAMESPACE
+    - kubectl rollout status deployment/cropdoctor -n $K8S_NAMESPACE --timeout=5m
+  only:
+    - master
+  when: manual

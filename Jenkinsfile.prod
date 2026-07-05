@@ -1,0 +1,250 @@
+pipeline {
+	agent any
+
+	environment {
+		// Docker Registry (Docker Hub, ACR, etc.)
+		DOCKER_REGISTRY = credentials('docker-registry-credentials')
+		IMAGE_NAME = "cropdoctor"
+		IMAGE_TAG = "${BUILD_NUMBER}"
+		DOCKER_IMAGE = "${DOCKER_REGISTRY_USR}/${IMAGE_NAME}:${IMAGE_TAG}"
+		DOCKER_IMAGE_LATEST = "${DOCKER_REGISTRY_USR}/${IMAGE_NAME}:latest"
+
+		// Kubernetes
+		K8S_CLUSTER = credentials('k8s-cluster-config')
+		K8S_NAMESPACE = "cropdoctor"
+
+		// SonarQube (optional)
+		SONAR_HOST_URL = credentials('sonarqube-host')
+		SONAR_LOGIN = credentials('sonarqube-token')
+	}
+
+	stages {
+		stage('Checkout') {
+			steps {
+				script {
+					echo '========== Checking out code =========='
+					checkout([$class: 'GitSCM',
+						branches: [[name: '*/master']],
+						userRemoteConfigs: [[
+							url: 'https://github.com/omnicoder59/CropDoctor1Solution.git',
+							credentialsId: 'github-credentials'
+						]]
+					])
+				}
+			}
+		}
+
+		stage('Build') {
+			steps {
+				script {
+					echo '========== Building .NET 8 application =========='
+					bat '''
+						dotnet restore CropDoctor1/CropDoctor1.csproj
+						dotnet build CropDoctor1/CropDoctor1.csproj -c Release
+					'''
+				}
+			}
+		}
+
+		stage('Test') {
+			steps {
+				script {
+					echo '========== Running unit tests =========='
+					bat '''
+						REM Uncomment if you have test projects
+						REM dotnet test CropDoctor1.Tests/CropDoctor1.Tests.csproj -c Release --no-build --logger trx --results-directory TestResults
+					'''
+				}
+			}
+			post {
+				always {
+					// Publish test results (if tests exist)
+					// junit 'TestResults/*.trx'
+				}
+			}
+		}
+
+		stage('Code Quality Analysis') {
+			steps {
+				script {
+					echo '========== SonarQube Code Analysis =========='
+					bat '''
+						REM Uncomment if using SonarQube
+						REM dotnet tool install --global dotnet-sonarscanner
+						REM dotnet sonarscanner begin /k:cropdoctor /d:sonar.host.url=%SONAR_HOST_URL% /d:sonar.login=%SONAR_LOGIN%
+						REM dotnet build CropDoctor1/CropDoctor1.csproj
+						REM dotnet sonarscanner end /d:sonar.login=%SONAR_LOGIN%
+					'''
+				}
+			}
+		}
+
+		stage('Security Scan') {
+			steps {
+				script {
+					echo '========== Scanning dependencies for vulnerabilities =========='
+					bat '''
+						REM Scan NuGet packages
+						dotnet list CropDoctor1/CropDoctor1.csproj package --vulnerable
+					'''
+				}
+			}
+		}
+
+		stage('Build Docker Image') {
+			steps {
+				script {
+					echo "========== Building Docker image: ${DOCKER_IMAGE} =========="
+					bat """
+						docker build -t ${DOCKER_IMAGE} .
+						docker tag ${DOCKER_IMAGE} ${DOCKER_IMAGE_LATEST}
+					"""
+				}
+			}
+		}
+
+		stage('Scan Docker Image') {
+			steps {
+				script {
+					echo '========== Scanning Docker image for vulnerabilities =========='
+					bat '''
+						REM Uncomment if using Trivy
+						REM trivy image --severity HIGH,CRITICAL %DOCKER_IMAGE%
+					'''
+				}
+			}
+		}
+
+		stage('Push to Registry') {
+			steps {
+				script {
+					echo "========== Pushing image to registry =========="
+					bat """
+						docker login -u ${DOCKER_REGISTRY_USR} -p ${DOCKER_REGISTRY_PSW}
+						docker push ${DOCKER_IMAGE}
+						docker push ${DOCKER_IMAGE_LATEST}
+						docker logout
+					"""
+				}
+			}
+		}
+
+		stage('Deploy to Staging') {
+			when {
+				branch 'develop'
+			}
+			steps {
+				script {
+					echo '========== Deploying to Staging =========='
+					sh '''
+						# Load kubeconfig
+						export KUBECONFIG=${K8S_CLUSTER}
+
+						# Update image in deployment
+						kubectl set image deployment/cropdoctor \
+						  cropdoctor=${DOCKER_IMAGE} \
+						  --record \
+						  -n ${K8S_NAMESPACE}
+
+						# Wait for rollout
+						kubectl rollout status deployment/cropdoctor \
+						  -n ${K8S_NAMESPACE} \
+						  --timeout=5m
+					'''
+				}
+			}
+		}
+
+		stage('Deploy to Production') {
+			when {
+				branch 'master'
+			}
+			input {
+				message "Deploy to Production?"
+				ok "Deploy"
+				submitter "admin"
+			}
+			steps {
+				script {
+					echo '========== Deploying to Production =========='
+					sh '''
+						# Load kubeconfig
+						export KUBECONFIG=${K8S_CLUSTER}
+
+						# Update image in deployment
+						kubectl set image deployment/cropdoctor \
+						  cropdoctor=${DOCKER_IMAGE} \
+						  --record \
+						  -n ${K8S_NAMESPACE}
+
+						# Wait for rollout
+						kubectl rollout status deployment/cropdoctor \
+						  -n ${K8S_NAMESPACE} \
+						  --timeout=5m
+
+						# Get service info
+						kubectl get svc -n ${K8S_NAMESPACE}
+					'''
+				}
+			}
+		}
+
+		stage('Smoke Tests') {
+			steps {
+				script {
+					echo '========== Running smoke tests =========='
+					bat '''
+						REM Wait for app to be ready
+						timeout /t 5
+
+						REM Test the endpoint
+						curl -f http://localhost:8080 || exit /b 1
+					'''
+				}
+			}
+		}
+
+		stage('Performance Tests') {
+			steps {
+				script {
+					echo '========== Running performance tests =========='
+					bat '''
+						REM Run k6 load test (if installed)
+						REM k6 run load-test.js --vus 10 --duration 30s
+					'''
+				}
+			}
+		}
+	}
+
+	post {
+		always {
+			echo '========== Cleaning up =========='
+			script {
+				// Clean Docker artifacts
+				bat '''
+					docker logout
+					docker system prune -f
+				'''
+			}
+		}
+		success {
+			echo '✅ Pipeline completed successfully!'
+			// Send success notification
+			// emailext(
+			//     subject: "Jenkins Build Success: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+			//     body: "Build succeeded. Check console output at ${env.BUILD_URL}",
+			//     to: "${env.CHANGE_AUTHOR_EMAIL}"
+			// )
+		}
+		failure {
+			echo '❌ Pipeline failed!'
+			// Send failure notification
+			// emailext(
+			//     subject: "Jenkins Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+			//     body: "Build failed. Check console output at ${env.BUILD_URL}",
+			//     to: "${env.CHANGE_AUTHOR_EMAIL}"
+			// )
+		}
+	}
+}

@@ -46,7 +46,7 @@ public class NewsController : ControllerBase
         }
         catch (Exception)
         {
-            return StatusCode(500, "Failed to fetch news.");
+            return StatusCode(500, "Failed to fetch news please check the model api is running or not: ");
         }
     }
 }

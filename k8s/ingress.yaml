@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cropdoctor-ingress
+  namespace: cropdoctor
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"  # If using cert-manager
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx  # Change based on your ingress controller
+  tls:
+  - hosts:
+    - cropdoctor.example.com  # Your domain
+    secretName: cropdoctor-tls
+  rules:
+  - host: cropdoctor.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: cropdoctor-service
+            port:
+              number: 80
